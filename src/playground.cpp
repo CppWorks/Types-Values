@@ -81,7 +81,115 @@ constexpr auto transform(TypePack<T...>, F&& f)
   return {};
 }
 
-// 3. Values as types (37:35)
+// 3. Values as types
+
+// Old style (before C++17)
+template <class T, T V>
+struct integral_constant {
+  constexpr static T value = V;
+  using value_type = T;
+  // Conversion operators
+  // convert to value_type (from integral_constant<T, V)
+  constexpr operator value_type() const noexcept { return value; }
+  // call operator (for integral_constant<T, V>)
+  constexpr value_type operator() () const noexcept { return value; }
+};
+
+// C++17 style
+template<auto V>
+struct Value {
+  static constexpr auto value = V;
+  using value_type = decltype(V);
+  // Only one conversion operator
+  // auto operator!!! Pretty!!!
+  constexpr operator auto() const noexcept { return value; }
+};
+
+// add two numbers
+template<typename A, typename B>
+using Add = Value<A::value + B::value>;
+
+// float, double, string are not integral types and are not allowed as template parameters
+// using Pi = Value<3.14159>;
+// using Hello = Value<"Hello">;
+
+// 1. Function pointers are integral values!
+// 2. lambda who don't capture anything can be converted to function pointers
+
+// Specialisation for a function pointer with no arguments.
+// We don't care about the return value ("auto").
+template<auto (*F)()>
+struct Value<F> {
+  static constexpr auto value = F();
+  using value_type = decltype(value);
+  constexpr operator auto() const noexcept { return value; }
+};
+
+// Now we can write Pi as a lambda.
+// But compiler doesn't not know we want to convert our lambda to a function pointer!
+// using Pi = Value<[]() {return 3.14159;}>;
+// We can use a trick: plus sign drives!!! This forces exactly this conversion!
+using Pi = Value<+[]() {return 3.14159;}>;
+
+// empty braces actually not needed
+using Hello = Value<+[] { return "Hello"; }>;
+
+auto testHello() -> const char* {
+  // return an instance of our Hello
+  return Hello{};
+}
+
+template <typename... A>
+using Sum = Value<+[] { return (A::value + ...); }>;
+
+// Return type (double) needed. Otherwise conversion would not be triggered.
+auto testSum() -> double{
+  using FortyTwo = Value<42>;
+  using Pi = Value<+[]() { return 3.14159; }>;
+  using V2 = Value<+[] {return -23;}>;
+  return Sum<FortyTwo, V2, Pi>{};
+};
+
+// 4. Application of Values as Types
+
+// Packed Options
+// One integer stands for error, everything else success.
+// eg. in C legacy applications where return value of -1 is error, anything else is a return code.
+template <typename T>
+struct Optional { /*...*/
+};
+
+template<auto V>
+struct Optional<Value<V>>{
+  constexpr static auto invalidValue = Value<V>::value;
+  using value_type = decltype(invalidValue);
+
+  constexpr operator bool() const{
+    return value != invalidValue;
+  }
+
+  constexpr auto reset() {
+    value = invalidValue;
+  }
+
+  constexpr auto get() const { return value; }
+
+  constexpr auto set(value_type newValue){
+    value = newValue;
+  }
+
+private:
+  value_type value{invalidValue};
+};
+
+auto testOptional() {
+  using DefaultName = Value<+[]{return "Max Mustermann";}>;
+  using OptName = Optional<DefaultName>;
+
+  constexpr auto defaulted = OptName{};
+  static_assert(!defaulted);
+  static_assert(defaulted.get() == DefaultName::value);
+}
 
 // Tests
 
@@ -129,6 +237,18 @@ auto testTransform() {
       return removePointer(t);
     });
   static_assert(output == typePack<int, void>);
+}
+
+auto testAdd() {
+  // old style
+  using OneOld = integral_constant<int, 1>;
+
+  // C++17 style
+  using One = Value<1>;
+  using FortyTwo = Value<42>;
+
+  static_assert(Add<One, FortyTwo>::value == 43);
+
 }
 
 /*
