@@ -1,5 +1,6 @@
 #include <cinttypes>
 #include <type_traits>
+#include <cassert>
 
 // Types as Values and Values as Types
 
@@ -30,7 +31,7 @@ constexpr auto removePointer(Type<A>) -> Type<std::remove_pointer_t<A>> {
 }
 
 template<class A>
-constexpr auto sizeOf(Type<A>) -> size_t {
+constexpr auto sizeOf(Type<A>) -> std::size_t {
     return sizeof(A);
 }
 
