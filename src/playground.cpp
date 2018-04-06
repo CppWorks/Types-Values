@@ -6,8 +6,9 @@
 #include <vector>
 #include <tuple>
 
-// 1. Type as values
+// 1. Types as values
 
+// just a wrapper for types is a new type called Type<T>. T is the wrappee.
 template <typename T>
 struct Type {};
 
@@ -17,9 +18,21 @@ struct Type<Type<T>> {
   static_assert((Type<T>{}, false));
 };
 
+// does not compile anymore
+/*
+  auto testRecursiveTypes() {
+    using typeOftypeInt = Type<Type<int>>;
+    typeOftypeInt nestedInt;
+    std::cout << "Size if nested Int: " << sizeOf(nestedInt)
+              << ". (Wrong! Would need to recurse.)\n";
+  }
+*/
+
+// helper function to create instances of Type<T>
 template <typename T>
 auto type = Type<T>{};
 
+// compare types
 template <typename A, typename B>
 constexpr bool operator==(Type<A>, Type<B>) {
   return std::is_same_v<A, B>;
@@ -30,18 +43,55 @@ constexpr bool operator!=(Type<A>, Type<B>) {
   return !(type<A> == type<B>);
 }
 
+auto testTypes() {
+  Type<int> anInt;
+  Type<int> anotherInt;
+  Type<double> aDouble;
+  static_assert(anInt == type<int32_t>);
+  static_assert(anInt == anotherInt);
+  static_assert(anInt != aDouble);
+}
+
+// pointer to types
 template <typename A>
 constexpr auto removePointer(Type<A>) -> Type<std::remove_pointer_t<A>> {
   return {};
 }
 
+auto testPointer() {
+  auto voidPointer = type<void*>;
+  static_assert(type<void> == removePointer(voidPointer));
+}
+
+// how big is a type
 template <typename A>
 constexpr auto sizeOf(Type<A>) -> size_t {
   return sizeof(A);
 }
 
+auto testTypeSize() {
+  Type<int> anInt;
+  static_assert(sizeOf(anInt) == 4);
+  static_assert(sizeOf(type<int>) == 4);
+  std::cout << "Size of int: " << sizeOf(type<int>) << "\n";
+}
+
+// declaration without implementation worked too. "return {}" seems to be like a default return.
+// constexpr not needed either.
 template <typename T>
 auto unwrap(Type<T>) -> T;
+
+// get the original type out of Type<T>. (Not needed actually. Declaration is sufficient.)
+template <typename T>
+auto unwrap(Type<T>) -> T {
+  return {};
+};
+
+auto testUnwrap() {
+  auto intType = type<int>;
+  auto value = decltype(unwrap(intType)){23};
+  return value;
+}
 
 // 2. Variadic templates
 // Doing exactly the same as in 1. but for type packs. Please compare the functions and
@@ -70,6 +120,12 @@ constexpr bool operator==(TypePack<A...>, TypePack<B...>) {
   }
 }
 
+auto testTypePack() {
+  auto intCharFloat = typePack<int, char, float>;
+  auto intCharFloatDouble = append(intCharFloat, type<double>);
+  static_assert(intCharFloatDouble == typePack<int, char, float, double>);
+}
+
 // map function. Turn a type pack of one type to a type pack of possibly another type.
 // eg. (A, A, A) -> (B, B, B)
 // NOT: (A, B, C) -> (A', B', C')
@@ -80,6 +136,14 @@ template <typename... T, typename F>
 constexpr auto transform(TypePack<T...>, F&& f)
     -> TypePack<decltype(unwrap(f(type<T>)))...> {
   return {};
+}
+
+auto testTransform() {
+  auto input = typePack<int, void*>;
+  auto output = transform(input, [](auto t){
+      return removePointer(t);
+    });
+  static_assert(output == typePack<int, void>);
 }
 
 // 3. Values as types
@@ -96,7 +160,7 @@ struct integral_constant {
   constexpr value_type operator() () const noexcept { return value; }
 };
 
-// C++17 style
+// C++17 style. Everything auto.
 template<auto V>
 struct Value {
   static constexpr auto value = V;
@@ -110,12 +174,20 @@ struct Value {
 template<typename A, typename B>
 using Add = Value<A::value + B::value>;
 
+auto testAdd() {
+  // old style
+  using OneOld = integral_constant<int, 1>;
+
+  // C++17 style
+  using One = Value<1>;
+  using FortyTwo = Value<42>;
+
+  static_assert(Add<One, FortyTwo>::value == 43);
+}
+
 // float, double, string are not integral types and are not allowed as template parameters
 // using Pi = Value<3.14159>;
 // using Hello = Value<"Hello">;
-
-// 1. Function pointers are integral values!
-// 2. lambda who don't capture anything can be converted to function pointers
 
 // Specialisation for a function pointer with no arguments.
 // We don't care about the return value ("auto").
@@ -126,10 +198,13 @@ struct Value<F> {
   constexpr operator auto() const noexcept { return value; }
 };
 
+// 1. Function pointers are integral values!
+// 2. lambda who don't capture anything can be converted to function pointers
+// https://stackoverflow.com/questions/43843550/template-argument-deduction-from-lambda
+// We can use a trick: unary +
+
 // Now we can write Pi as a lambda.
-// But compiler doesn't not know we want to convert our lambda to a function pointer!
 // using Pi = Value<[]() {return 3.14159;}>;
-// We can use a trick: plus sign drives!!! This forces exactly this conversion!
 using Pi = Value<+[]() {return 3.14159;}>;
 
 // empty braces actually not needed
@@ -221,8 +296,6 @@ struct Callable {
   }
 };
 
-// Tests
-
 auto testCallable() {
   constexpr auto inc = Callable<+[](int& i) { return i += 1; }>{};
   auto m = Memory{};
@@ -237,85 +310,4 @@ auto testCallable() {
   return inc(m);
 }
 
-auto testTypes() {
-  Type<int> someInt;
-  static_assert(someInt == type<int32_t>);
-}
-
-auto testPointer() {
-  auto voidPointer = type<void*>;
-  static_assert(type<void> == removePointer(voidPointer));
-}
-
-auto testEquality() {
-  Type<int> anInt;
-  Type<int> anotherInt;
-  Type<double> aDouble;
-  static_assert(anInt == anotherInt);
-  static_assert(anInt != aDouble);
-}
-
-auto testTypeSize() {
-  Type<int> anInt;
-
-  static_assert(sizeOf(anInt) == 4);
-  static_assert(sizeOf(type<int>) == 4);
-  std::cout << "Size of int: " << sizeOf(type<int>) << "\n";
-}
-
-auto testUnwrap() {
-  auto intType = type<int>;
-  auto value = decltype(unwrap(intType)){23};
-  return value;
-}
-
-auto testTypePack() {
-  auto intCharFloat = typePack<int, char, float>;
-  auto intCharFloatDouble = append(intCharFloat, type<double>);
-  static_assert(intCharFloatDouble == typePack<int, char, float, double>);
-}
-
-auto testTransform() {
-  auto input = typePack<int, void*>;
-  auto output = transform(input, [](auto t){
-      return removePointer(t);
-    });
-  static_assert(output == typePack<int, void>);
-}
-
-auto testAdd() {
-  // old style
-  using OneOld = integral_constant<int, 1>;
-
-  // C++17 style
-  using One = Value<1>;
-  using FortyTwo = Value<42>;
-
-  static_assert(Add<One, FortyTwo>::value == 43);
-
-}
-
-/*
-auto testRecursiveTypes() {
-  using typeOftypeInt = Type<Type<int>>;
-  typeOftypeInt nestedInt;
-  std::cout << "Size if nested Int: " << sizeOf(nestedInt) << ". (Wrong! Would need to
-recurse.)\n";
-}
-*/
-
-int main() {
-  std::cout << "Just testing.\n";
-
-  testTypes();
-  testPointer();
-  testEquality();
-  testTypeSize();
-  testUnwrap();
-  testTypePack();
-  testTransform();
-
-  std::cout << testCallable() << "\n";
-
-  return 0;
-}
+int main() {}
