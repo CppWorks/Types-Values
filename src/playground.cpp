@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <tuple>
 
 // 1. Type as values
 
@@ -152,9 +153,10 @@ auto testSum() -> double{
 
 // 4. Application of Values as Types
 
-// Packed Options
+// a. Packed Options
 // One integer stands for error, everything else success.
 // eg. in C legacy applications where return value of -1 is error, anything else is a return code.
+
 template <typename T>
 struct Optional { /*...*/
 };
@@ -191,7 +193,49 @@ auto testOptional() {
   static_assert(defaulted.get() == DefaultName::value);
 }
 
+// b. Callable (scripting interface for C++ functions)
+
+using Memory = std::vector<uint8_t>;
+
+template<class R, class... Args>
+constexpr auto argumentTuple(R (*)(Args...)) -> std::tuple<Args...> {
+  return {};
+}
+
+template<auto F>
+struct Callable {
+  using Tuple = decltype(argumentTuple(F));
+
+  constexpr static auto size = sizeof(Tuple);
+
+  constexpr static auto asArguments(Memory& m) -> Tuple& {
+    assert(m.size() == size);
+    return reinterpret_cast<Tuple&>(m[0]);
+  }
+
+  // call operator
+  // the arguments are in Memory
+  constexpr auto operator()(Memory& m) const {
+    //std::apply takes a function and a tuple of arguments
+    return std::apply(F, asArguments(m));
+  }
+};
+
 // Tests
+
+auto testCallable() {
+  constexpr auto inc = Callable<+[](int& i) { return i += 1; }>{};
+  auto m = Memory{};
+  // initialize memory
+  m.resize(inc.size);
+  int i = 42;
+  // casting not so nice here
+  // we need a writable pointer to i
+  // alternative: *reinterpret_cast<int**>(m.data()) = &i;
+  reinterpret_cast<int*&>(m[0]) = &i;
+
+  return inc(m);
+}
 
 auto testTypes() {
   Type<int> someInt;
@@ -270,6 +314,8 @@ int main() {
   testUnwrap();
   testTypePack();
   testTransform();
+
+  std::cout << testCallable() << "\n";
 
   return 0;
 }
